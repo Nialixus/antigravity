@@ -187,6 +187,37 @@ class GeneralGetStates<T extends Object> extends DModel {
 }
 ```
 
+#### `GeneralSendStates`
+
+Base model for action and mutation states (POST, PUT, DELETE):
+
+````dart
+import 'package:dart_fusion_flutter/dart_fusion_flutter.dart';
+class GeneralSendStates<T extends Object> extends DModel {
+  const GeneralSendStates({
+    required this.message,
+    required this.data,
+  });
+  final String message;
+  final T data;
+  @override
+  JSON get toJSON => {
+    'message': message,
+    'data': data,
+    ...super.toJSON,
+  };
+  @override
+  GeneralSendStates<T> copyWith({
+    String? message,
+    T? data,
+  }) {
+    return GeneralSendStates<T>(
+      message: message ?? this.message,
+      data: data ?? this.data,
+    );
+  }
+}
+
 #### `GeneralCubit` (Controller Base)
 
 Base controller linking state and repository with lifecycle and safe emissions:
@@ -221,7 +252,7 @@ abstract class GeneralCubit<T extends Object, U extends GeneralRepository>
     }
   }
 }
-```
+````
 
 ---
 
@@ -551,6 +582,90 @@ class FeatureItemCard extends StatelessWidget {
 }
 ```
 
+#### Template C: Mutation & Action View (Dialog / Form with `BlocConsumer`)
+
+For forms, dialogs, or user actions that submit data (POST / PUT / DELETE):
+
+- **Never switch entire screens into error or loading pages**; keep form inputs visible.
+- Use `BlocListener` / `BlocConsumer` to display **Toast notifications** (`Utils.showToast` on success, `Utils.showErrorToast` on failure) and dismiss the modal with `Navigator.pop(context, true)`.
+- Use `BlocBuilder` / `builder` to pass `isLoading: state is FeatureSendLoading` directly to the action button.
+- On the calling screen, await the result and trigger a **silent refresh** (e.g., `refreshData()`) instead of a full re-shimmer (`getData()`).
+
+````dart
+part of '../feature.dart';
+class FeatureActionDialog extends StatefulWidget {
+  const FeatureActionDialog({super.key});
+  Future<T?> push<T extends Object?>(BuildContext context) async {
+    return General.pushDialog<T>(
+      context,
+      child: this,
+    );
+  }
+  @override
+  State<FeatureActionDialog> createState() => _FeatureActionDialogState();
+}
+class _FeatureActionDialogState extends State<FeatureActionDialog> {
+  late final TextEditingController textController;
+  @override
+  void initState() {
+    super.initState();
+    textController = TextEditingController();
+  }
+  @override
+  void dispose() {
+    textController.dispose();
+    super.dispose();
+  }
+  @override
+  Widget build(BuildContext context) {
+    return BlocProvider(
+      create: (context) => FeatureActionCubit(),
+      child: BlocConsumer<FeatureActionCubit, FeatureActionStates>(
+        listener: (context, state) {
+          if (state is FeatureActionSuccess) {
+            Utils.showToast(context, state.message);
+            Navigator.of(context).pop(true);
+          } else if (state is FeatureActionError) {
+            Utils.showErrorToast(context, state.message);
+          }
+        },
+        builder: (context, state) {
+          final isLoading = state is FeatureActionLoading;
+          return GeneralPopup(
+            title: 'Create Item',
+            body: (context, reload) {
+              return GeneralTextArea(
+                controller: textController,
+                hintText: 'Enter title...',
+              );
+            },
+            footer: (context, reload) => [
+              GeneralFooterModel(
+                title: 'Cancel',
+                onTap: isLoading ? null : () => Navigator.of(context).pop(),
+              ),
+              GeneralFooterModel(
+                title: 'Submit',
+                isLoading: isLoading,
+                onTap: isLoading
+                    ? null
+                    : () {
+                        final text = textController.text.trim();
+                        if (text.isEmpty) {
+                          Utils.showErrorToast(context, 'Field cannot be empty');
+                          return;
+                        }
+                        context.read<FeatureActionCubit>().submit(text);
+                      },
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
 ---
 
 ### 2.8 Routing & Navigation Integration
@@ -566,7 +681,7 @@ final class Routes {
     builder: (_, state) => const FeaturePage(),
   );
 }
-```
+````
 
 ---
 
@@ -578,6 +693,9 @@ final class Routes {
    - For real-time searches or text inputs, use debouncing (e.g. `GeneralDebouncer` or `Timer`) in the controller rather than firing HTTP requests on every keystroke.
 3. **Clean Error Recovery**:
    - `FeatureError` holds `message` and `data` (stackTrace or response payload). The error view must always provide a retry button connected directly to the controller's fetch method (`onPressed: controller.fetchItems`).
+4. **Silent Refresh vs. Full Reload on Action Completion**:
+   - When returning to a parent view from a modal/form action with `result == true`, avoid re-triggering full page shimmers via `fetchItems()`.
+   - Implement and invoke a silent refresh method (e.g. `refreshTimeline()`, `refreshItems()`) in the cubit that updates existing data seamlessly without flashing shimmer placeholders.
 
 ---
 
@@ -644,6 +762,7 @@ app/
 Every package directory must provide a clean, explicit `__init__.py` declaring an explicit `__all__` list. This prevents scope pollution and enables clean, centralized imports:
 
 #### 1. Root `app/__init__.py`:
+
 Exports core constants, singleton environment, database session provider, base envelope schemas, and route bypass configurations:
 
 ```python
@@ -685,6 +804,7 @@ __all__: list[str] = [
 ```
 
 #### 2. Subpackage `__init__.py` (e.g., `app/schemas/__init__.py`, `app/models/__init__.py`):
+
 Every subpackage aggregates its classes into `__all__` so consumers import cleanly:
 
 ```python
@@ -759,16 +879,16 @@ Our engineering doctrine strictly prioritizes **syntax over dynamic values**. Mu
 
 #### 2. Side-by-Side: Dynamic Anti-Pattern vs. Strict Syntax Standard
 
-| Area | ❌ Anti-Pattern (Dynamic / Untyped) | ✅ Standard (Syntax Over Dynamic Values) |
-| :--- | :--- | :--- |
-| **Endpoint Signature** | `def get_user(user_id):` | `def get_user(user_id: str, db: Session = Depends(get_db)) -> ResponseSchema[UserSchema]:` |
-| **Endpoint Return** | `return {"message": "ok", "user": user}` | `return ResponseSchema(data=UserSchema.model_validate(user))` |
-| **Query Parameters** | `search=None, page=1, limit=20` | `params: PaginationRequest = Depends()` |
-| **Parameter Options** | `sort_order: str = "asc"` | `sort_order: Literal["asc", "desc"] = "asc"` |
-| **Database Model** | `id = Column(String)` | `id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)` |
-| **Error Handling** | `return JSONResponse({"error": "Failed"})` | `response_body = ResponseSchema[None](message=msg, data=None)` |
-| **Generic List** | `items: list = []` | `items: list[ItemSchema] = []` |
-| **Optional Values** | `user_name = None` | `user_name: str | None = None` |
+| Area                   | ❌ Anti-Pattern (Dynamic / Untyped)        | ✅ Standard (Syntax Over Dynamic Values)                                                   |
+| :--------------------- | :----------------------------------------- | :----------------------------------------------------------------------------------------- | ------------ |
+| **Endpoint Signature** | `def get_user(user_id):`                   | `def get_user(user_id: str, db: Session = Depends(get_db)) -> ResponseSchema[UserSchema]:` |
+| **Endpoint Return**    | `return {"message": "ok", "user": user}`   | `return ResponseSchema(data=UserSchema.model_validate(user))`                              |
+| **Query Parameters**   | `search=None, page=1, limit=20`            | `params: PaginationRequest = Depends()`                                                    |
+| **Parameter Options**  | `sort_order: str = "asc"`                  | `sort_order: Literal["asc", "desc"] = "asc"`                                               |
+| **Database Model**     | `id = Column(String)`                      | `id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True)`             |
+| **Error Handling**     | `return JSONResponse({"error": "Failed"})` | `response_body = ResponseSchema[None](message=msg, data=None)`                             |
+| **Generic List**       | `items: list = []`                         | `items: list[ItemSchema] = []`                                                             |
+| **Optional Values**    | `user_name = None`                         | `user_name: str                                                                            | None = None` |
 
 ---
 
@@ -806,6 +926,7 @@ warn_return_any = true
 ```
 
 #### 4. Mandatory Pre-Commit Linter Verification:
+
 - Always run `uv run ruff check .` inside the project virtual environment before finalizing code or marking any task complete.
 - **Zero-Warning Tolerance**: Fix all warnings reported by Ruff immediately — do not suppress warnings with `# noqa` unless mathematically or architecturally impossible to resolve cleanly.
 
@@ -816,6 +937,7 @@ warn_return_any = true
 In accordance with our engineering standards, Python projects maintain a standardized set of reusable base abstractions and general models across both the presentation (`schemas/`), request validation (`requests/`), and persistence (`models/`) layers:
 
 #### 1. `GenericSchema` (Foundational Pydantic Base):
+
 Every outbound schema in the application **MUST inherit from `GenericSchema`**. It provides an automatic `@computed_field` `schema_id` property reflecting the schema class name, ensuring self-documenting JSON serializations across all client consumers:
 
 ```python
@@ -836,6 +958,7 @@ class GenericSchema(BaseModel):
 ```
 
 #### 2. Envelope Wrapper: `ResponseSchema[T]`:
+
 Standard top-level envelope wrapper for all API responses (success and handled errors alike), enforcing a deterministic JSON contract across the application:
 
 ```python
@@ -865,6 +988,7 @@ class ResponseSchema(GenericSchema, Generic[T]):
 ```
 
 #### 3. Paginated Collection Wrapper: `ListSchema[T]`:
+
 Standard collection envelope returned whenever an endpoint delivers a paginated chunk of items:
 
 ```python
@@ -885,6 +1009,7 @@ class ListSchema(GenericSchema, Generic[T]):
 ```
 
 #### 4. Mathematical Pagination Metadata: `PaginationSchema`:
+
 Encapsulates offset pagination tracking metadata and provides a zero-boilerplate factory `.create(...)`:
 
 ```python
@@ -919,6 +1044,7 @@ class PaginationSchema(GenericSchema):
 ```
 
 #### 5. Reusable Query Pagination & Filter Model: `PaginationRequest`:
+
 Standard reusable request parameters for all paginated GET endpoints (`app/requests/pagination_request.py`):
 
 ```python
@@ -937,6 +1063,7 @@ class PaginationRequest(BaseModel):
 ```
 
 #### 6. Structured Error Model: `ErrorDetailSchema`:
+
 Standard schema for granular validation errors and diagnostic payloads (`app/schemas/error_schema.py`):
 
 ```python
@@ -953,6 +1080,7 @@ class ErrorDetailSchema(GenericSchema):
 ```
 
 #### 7. General Database Entity Blueprint: `BaseDBModel`:
+
 Abstract SQLModel base class providing standardized UUID4 primary key `id` and `created_at` timestamp tracking for all relational models (`app/models/base_model.py`):
 
 ```python
@@ -981,6 +1109,7 @@ class BaseDBModel(SQLModel):
 ```
 
 #### 8. Action & Empty Response Pattern (`ResponseSchema[None]`):
+
 For endpoints that perform an action (e.g. logout, revoke, delete) without returning a payload entity, use `ResponseSchema[None]`:
 
 ```python
@@ -990,6 +1119,7 @@ def logout() -> ResponseSchema[None]:
 ```
 
 #### 9. Domain Schemas (Extending `GenericSchema`):
+
 All domain-specific schemas extend `GenericSchema`:
 
 ```python
@@ -1011,6 +1141,7 @@ class UserSchema(GenericSchema):
 ### 3.5 Database Layer & Models (`models/` & `cores/database.py`)
 
 #### 1. SQLModel Table Definitions:
+
 - Must inherit `SQLModel, table=True` (or extend `BaseDBModel`).
 - Define explicit `__tablename__ = "stellar_..."`.
 - Primary keys use UUID4 string factory: `id: str = Field(default_factory=lambda: str(uuid.uuid4()), primary_key=True, index=True, max_length=255)`.
@@ -1051,6 +1182,7 @@ class UserModel(SQLModel, table=True):
 ```
 
 #### 2. Engine, Lifecycle Initialization & Session Provider (`cores/database.py`):
+
 - Connection engine with connection pooling: `pool_pre_ping=True`, `pool_recycle=3600`.
 - `init_db()` table builder: imports all models BEFORE calling `SQLModel.metadata.create_all(engine)` to ensure all tables are registered in memory.
 - `get_db()` FastAPI dependency:
@@ -1088,6 +1220,7 @@ def get_db() -> Generator[Session, None, None]:
 ### 3.6 Core Configuration & Security (`cores/`)
 
 #### 1. Environment Singleton (`cores/environment.py`):
+
 - Uses `pydantic_settings.BaseSettings` and `SettingsConfigDict`.
 - Uses `@model_validator(mode="before")` to strip surrounding quotes from env variables.
 - Instantiates a singleton `env = Environment()`.
@@ -1124,6 +1257,7 @@ env = Environment()
 ```
 
 #### 2. Security & Token Verification (`cores/security.py`):
+
 - Password hashing with `bcrypt.hashpw` and `bcrypt.checkpw`.
 - Access token encoding with UTC expirations (e.g. 15 minutes) and token versions for revocation.
 - Token decoding with explicit `expected_type` verification ("access" vs "refresh").
@@ -1456,22 +1590,20 @@ class TestEventEndpoints(unittest.TestCase):
 
 ## 4. Key Cross-Project Conventions Summary
 
-| Area | Flutter / Dart Convention | Python (FastAPI / SQLModel) Convention |
-| :--- | :--- | :--- |
-| **Architecture** | Modular MVC (`lib/src/shared/` & `lib/src/<feature>/`) | Layered Service (`app/cores`, `models`, `schemas`, `requests`, `routers`, `services`) |
-| **Typing Philosophy** | Statically compiled, zero dynamic types | **Syntax Over Dynamic Values**: 100% PEP 484 type hints, `Literal`, `Generic[T]`, no untyped dicts |
-| **Linting & Code Quality** | `flutter_lints` / strong mode in `analysis_options.yaml` | `uv run ruff check .` (E, F, I, UP, B, SIM, RUF) & `mypy --strict` with zero warnings |
-| **Model / Entity Base** | `DModel` (`dart_fusion_flutter`) | `BaseDBModel` / `SQLModel, table=True` & `GenericSchema` |
-| **Response Contract** | `GeneralGetStates<T>` envelope | `ResponseSchema[T]` and `ListSchema[T]` envelopes with computed `schema_id` |
-| **Request Validation** | Dart constructor validation & tear-offs | Pydantic `BaseModel` (`app/requests/`) with typed Field constraints & `Literal` |
-| **Serialization** | `static fromJSON(JSON)` & `toJSON` | Pydantic `.model_dump()` / `.model_dump_json()` & SQLModel mappings |
-| **Module Exports** | `library <feature>;` with `part '...'` | Explicit `__init__.py` with typed `__all__ = [...]` |
-| **Database / Client** | `GeneralRepository` encapsulating typed `Dio` | SQLModel `Session` via `get_db` FastAPI dependency injection |
-| **Error Handling** | `FeatureError` with message and retry logic | Centralized exception handlers wrapping errors in `ResponseSchema` |
-| **Interceptors / Guards** | Custom Dio interceptors | `BaseHTTPMiddleware` with route exclusions & `HTTPBearerToken` scheme |
-| **Documentation** | dartdoc with static tear-offs | Custom OpenAPI post-processor with generic bracket notation & schema grouping |
-| **Testing** | `factory .test({bool random = true})` | `unittest.TestCase` with typed test methods & `MagicMock(spec=Session)` |
-| **Security** | Zero-tolerance on secrets: never read or output `.env*` | Zero-tolerance on secrets: use typed `env = Environment()` singleton |
-| **Scratchpad** | Full autonomy inside `scratch/` | Full autonomy inside `scratch/` |
-
-
+| Area                       | Flutter / Dart Convention                                | Python (FastAPI / SQLModel) Convention                                                             |
+| :------------------------- | :------------------------------------------------------- | :------------------------------------------------------------------------------------------------- |
+| **Architecture**           | Modular MVC (`lib/src/shared/` & `lib/src/<feature>/`)   | Layered Service (`app/cores`, `models`, `schemas`, `requests`, `routers`, `services`)              |
+| **Typing Philosophy**      | Statically compiled, zero dynamic types                  | **Syntax Over Dynamic Values**: 100% PEP 484 type hints, `Literal`, `Generic[T]`, no untyped dicts |
+| **Linting & Code Quality** | `flutter_lints` / strong mode in `analysis_options.yaml` | `uv run ruff check .` (E, F, I, UP, B, SIM, RUF) & `mypy --strict` with zero warnings              |
+| **Model / Entity Base**    | `DModel` (`dart_fusion_flutter`)                         | `BaseDBModel` / `SQLModel, table=True` & `GenericSchema`                                           |
+| **Response Contract**      | `GeneralGetStates<T>` envelope                           | `ResponseSchema[T]` and `ListSchema[T]` envelopes with computed `schema_id`                        |
+| **Request Validation**     | Dart constructor validation & tear-offs                  | Pydantic `BaseModel` (`app/requests/`) with typed Field constraints & `Literal`                    |
+| **Serialization**          | `static fromJSON(JSON)` & `toJSON`                       | Pydantic `.model_dump()` / `.model_dump_json()` & SQLModel mappings                                |
+| **Module Exports**         | `library <feature>;` with `part '...'`                   | Explicit `__init__.py` with typed `__all__ = [...]`                                                |
+| **Database / Client**      | `GeneralRepository` encapsulating typed `Dio`            | SQLModel `Session` via `get_db` FastAPI dependency injection                                       |
+| **Error Handling**         | `FeatureError` with message and retry logic              | Centralized exception handlers wrapping errors in `ResponseSchema`                                 |
+| **Interceptors / Guards**  | Custom Dio interceptors                                  | `BaseHTTPMiddleware` with route exclusions & `HTTPBearerToken` scheme                              |
+| **Documentation**          | dartdoc with static tear-offs                            | Custom OpenAPI post-processor with generic bracket notation & schema grouping                      |
+| **Testing**                | `factory .test({bool random = true})`                    | `unittest.TestCase` with typed test methods & `MagicMock(spec=Session)`                            |
+| **Security**               | Zero-tolerance on secrets: never read or output `.env*`  | Zero-tolerance on secrets: use typed `env = Environment()` singleton                               |
+| **Scratchpad**             | Full autonomy inside `scratch/`                          | Full autonomy inside `scratch/`                                                                    |
