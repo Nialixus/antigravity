@@ -40,22 +40,3 @@ cp RULES.md .agents/rules/coding-style.md
 > **Note**: Antigravity also supports placing `RULES.md` directly in the project root. Both approaches are valid, but `.agents/rules/coding-style.md` keeps the project root clean.
 
 ---
-
-## 📌 Summary of Rules
-
-- **🛡️ Ironclad Security**: Zero-tolerance on `.env*`, certs, and credential files (skip & never read/output).
-- **⚡ Scratchpad Autonomy**: Full freedom to create, edit, run, and delete files inside `scratch/` or `tmp/` without prompts.
-- **🏗️ Modular MVC**: Feature-first folders in `lib/src/<feature>/` (`models/`, `views/`, `controllers/`) and `lib/src/shared/` using `library` and `part` / `part of`.
-- **📦 DModel Standard**: Models extend `DModel`, with `static fromJSON(JSON value)` (primitives without fallback; lists/maps with fallback), `toJSON`, `copyWith`, and `factory .test()`.
-- **🎨 Clean Views**:
-  - `StatelessWidget` for pure UI display components.
-  - `StatefulWidget` for pages managing controller lifecycle (`initState`/`dispose`).
-  - `_FeaturePageState` is the **only** allowed underscore naming.
-  - DRY context extensions (`context.text.*`, `context.color.*`) instead of manual `Theme.of(context)`.
-- **🔄 Controllers & typed Dio**: `GeneralCubit` with sealed states (`Loading` with `.test()` data, `Success`, `Error`) and typed `Dio` in `GeneralRepository`.
-
----
-
-## 📄 License
-
-MIT License.
