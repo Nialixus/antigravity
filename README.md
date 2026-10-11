@@ -16,14 +16,14 @@ Install to your global Antigravity config directory:
 
 ```bash
 mkdir -p ~/.gemini/config/rules
-curl -fsSL https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/RULES.md \
+curl -fsSL https://raw.githubusercontent.com/<YOUR_USERNAME>/<YOUR_REPO>/main/GEMINI.md \
   -o ~/.gemini/config/rules/coding-style.md
 ```
 
 _(Or symlink it locally)_:
 
 ```bash
-ln -s "$(pwd)/RULES.md" ~/.gemini/config/rules/coding-style.md
+ln -s "$(pwd)/GEMINI.md" ~/.gemini/config/rules/coding-style.md
 ```
 
 ---
@@ -34,9 +34,9 @@ Add to the `.agents/rules/` directory in your project root:
 
 ```bash
 mkdir -p .agents/rules
-cp RULES.md .agents/rules/coding-style.md
+cp GEMINI.md .agents/rules/coding-style.md
 ```
 
-> **Note**: Antigravity also supports placing `RULES.md` directly in the project root. Both approaches are valid, but `.agents/rules/coding-style.md` keeps the project root clean.
+> **Note**: Antigravity also supports placing `GEMINI.md` directly in the project root. Both approaches are valid, but `.agents/rules/coding-style.md` keeps the project root clean.
 
 ---
